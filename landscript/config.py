@@ -73,7 +73,7 @@ class FontConfig:
 
 @dataclass
 class PipelineConfig:
-    bbox: BBox = REGIONS["bangalore"]
+    bbox: BBox = field(default_factory=lambda: REGIONS["bangalore"])
     region_name: str = "bangalore"
     state: str = "Karnataka"
     country: str = "India"
