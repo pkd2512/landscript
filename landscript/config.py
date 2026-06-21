@@ -80,6 +80,7 @@ class PipelineConfig:
     font: FontConfig = field(default_factory=FontConfig)
 
     data_dir: Path = PROJECT_ROOT / "data"
+    drive_dir: Optional[Path] = None
     fonts_dir: Path = field(init=False)
     source_dir: Path = field(init=False)
     tiles_dir: Path = field(init=False)
@@ -100,12 +101,14 @@ class PipelineConfig:
 
     def __post_init__(self):
         self.fonts_dir = PROJECT_ROOT / "fonts"
-        self.source_dir = self.data_dir / "source"
-        self.tiles_dir = self.data_dir / "tiles"
+        bulk = self.drive_dir or self.data_dir
+        self.source_dir = bulk / "source"
+        self.tiles_dir = bulk / "tiles"
         self.glyphs_dir = self.data_dir / "glyphs"
         self.metadata_dir = self.data_dir / "metadata"
-        for d in [self.fonts_dir, self.source_dir, self.tiles_dir,
-                  self.glyphs_dir, self.metadata_dir]:
+        for d in [self.fonts_dir, self.glyphs_dir, self.metadata_dir]:
+            d.mkdir(parents=True, exist_ok=True)
+        for d in [self.source_dir, self.tiles_dir]:
             d.mkdir(parents=True, exist_ok=True)
 
         if self.font.local_path is None:
