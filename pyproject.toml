@@ -12,7 +12,6 @@ authors = [
     { name = "Prasanta Kumar Dutta" },
 ]
 requires-python = ">=3.10"
-packages = [{ include = "landscript" }]
 dependencies = [
     "numpy>=1.24",
     "opencv-python-headless>=4.8",
@@ -38,3 +37,6 @@ print = [
     "reportlab>=4.0",
     "weasyprint>=60",
 ]
+
+[tool.setuptools]
+packages = ["landscript"]
