@@ -15,14 +15,14 @@ class GlyphStore:
 
     def _load(self):
         if self.path.exists():
-            with open(self.path) as f:
+            with open(self.path, encoding="utf-8") as f:
                 self._glyphs = json.load(f)
         else:
             self._glyphs = []
 
     def _save(self):
-        with open(self.path, "w") as f:
-            json.dump(self._glyphs, f, indent=2, default=str)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(self._glyphs, f, indent=2, default=str, ensure_ascii=False)
 
     def add(self, entry: Dict[str, Any]) -> str:
         entry["id"] = f"glyph_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"

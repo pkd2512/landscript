@@ -190,7 +190,7 @@ def tile_scene(src_path: Path, cfg: PipelineConfig) -> List[Path]:
         pbar.close()
 
         idx_path = out_dir / "tile_index.json"
-        with open(idx_path, "w") as f:
+        with open(idx_path, "w", encoding="utf-8") as f:
             import json
             json.dump(tile_index, f, indent=2)
 

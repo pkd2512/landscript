@@ -46,6 +46,33 @@ def filter_contours(contours: List[np.ndarray],
     ]
 
 
+def is_cloud_region(img: np.ndarray, contour: np.ndarray,
+                    v_min: int = 200, s_max: int = 35,
+                    bright_pixel_pct: float = 60.0) -> bool:
+    """Return True if the contour interior looks like cloud cover.
+
+    Clouds in true-color satellite imagery are bright and desaturated:
+    high V (value/brightness) and low S (saturation) in HSV space.
+    We mask the contour interior, then check what fraction of those
+    pixels are both bright AND desaturated. If the majority are,
+    we call it a cloud and reject.
+    """
+    h, w = img.shape[:2]
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
+    pixels = img[mask == 255]
+    if pixels.size == 0:
+        return False
+
+    # cv2.imread returns BGR; convert to HSV
+    hsv = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_BGR2HSV).reshape(-1, 3)
+    s = hsv[:, 1]
+    v = hsv[:, 2]
+    cloud_pixels = ((v >= v_min) & (s <= s_max)).sum()
+    pct = 100.0 * cloud_pixels / len(hsv)
+    return pct >= bright_pixel_pct
+
+
 def contour_to_polygon(contour: np.ndarray,
                        epsilon: float = 0.02) -> np.ndarray:
     peri = cv2.arcLength(contour, True)
@@ -160,21 +187,40 @@ def extract_glyph_crop(
     img: np.ndarray,
     contour: np.ndarray,
     output_path: Path,
-    out_w: int = 1024,
-    out_h: int = 2048,
+    min_crop: int = 512,
+    padding: float = 0.4,
     max_black_pct: float = 20.0,
 ) -> Optional[Path]:
+    """Crop a square region around the contour and save as PNG at native resolution.
+
+    The crop side length is `max(contour_bbox * (1 + 2*padding), min_crop)`,
+    capped to the tile dimensions. We **never upscale** — the saved PNG is
+    the actual source pixels, so glyphs from small features stay sharp
+    instead of becoming blurry interpolated mush.
+
+    Returns None if too much of the requested square falls outside the tile.
+    """
+    tile_h, tile_w = img.shape[:2]
     x, y, w, h = cv2.boundingRect(contour)
     cx, cy = x + w // 2, y + h // 2
 
-    left = cx - out_w // 2
-    top = cy - out_h // 2
-    right = left + out_w
-    bottom = top + out_h
+    # Square source crop: bbox extent + padding, with a floor so tiny contours
+    # still get pulled out as a reasonably-sized image with context.
+    bbox_extent = max(w, h)
+    src_size = max(int(bbox_extent * (1.0 + 2.0 * padding)), min_crop)
+    src_size = min(src_size, tile_w, tile_h)
 
-    tile_h, tile_w = img.shape[:2]
-    canvas = np.zeros((out_h, out_w, 3), dtype=np.uint8)
-    mask = np.zeros((out_h, out_w), dtype=np.uint8)
+    left = cx - src_size // 2
+    top = cy - src_size // 2
+
+    # Shift the window so it stays fully inside the tile when possible.
+    left = max(0, min(left, tile_w - src_size))
+    top = max(0, min(top, tile_h - src_size))
+    right = left + src_size
+    bottom = top + src_size
+
+    canvas = np.zeros((src_size, src_size, 3), dtype=np.uint8)
+    mask = np.zeros((src_size, src_size), dtype=np.uint8)
 
     src_l = max(0, left)
     src_t = max(0, top)

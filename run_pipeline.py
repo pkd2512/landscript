@@ -17,7 +17,8 @@ from landscript.stac import download_and_tile
 from landscript.cv_pipeline import (
     load_letter_templates, to_grayscale, apply_threshold,
     find_contours, filter_contours, match_shape,
-    contour_to_polygon, extract_glyph_crop, cleanup_glyph
+    contour_to_polygon, extract_glyph_crop, cleanup_glyph,
+    is_cloud_region,
 )
 from landscript.metadata import GlyphStore
 
@@ -54,6 +55,18 @@ def main():
     parser.add_argument("--tile-size", type=int, default=1024, help="Tile size in pixels")
     parser.add_argument("--date-start", default="2023-01-01")
     parser.add_argument("--date-end", default="2024-12-31")
+    parser.add_argument("--no-cloud-filter", action="store_true",
+                        help="Disable HSV-based cloud rejection")
+    parser.add_argument("--cloud-pixel-pct", type=float, default=35.0,
+                        help="Max %% of bright+desaturated pixels before a contour "
+                             "is treated as a cloud (default: 35)")
+    parser.add_argument("--glyph-min-crop", type=int, default=512,
+                        help="Minimum side length (px) of the square glyph crop. "
+                             "Small contours get padded to at least this size. "
+                             "Output is native resolution; no upscaling. (default: 512)")
+    parser.add_argument("--glyph-padding", type=float, default=0.4,
+                        help="Extra space around the contour bbox as a fraction "
+                             "of bbox size, per side (default: 0.4)")
     args = parser.parse_args()
 
     cfg = PipelineConfig(
@@ -66,6 +79,10 @@ def main():
         date_start=args.date_start,
         date_end=args.date_end,
         tile_size=args.tile_size,
+        cloud_filter_enabled=not args.no_cloud_filter,
+        cloud_pixel_pct=args.cloud_pixel_pct,
+        glyph_min_crop=args.glyph_min_crop,
+        glyph_padding=args.glyph_padding,
     )
 
     print(f"\n{'='*50}")
@@ -96,10 +113,11 @@ def main():
     tile_index_path = cfg.tiles_dir / "tile_index.json"
     tile_index = {}
     if tile_index_path.exists():
-        with open(tile_index_path) as f:
+        with open(tile_index_path, encoding="utf-8") as f:
             tile_index = json.load(f)
 
     candidates_found = 0
+    rejected_cloud = 0
     for tile_path in tqdm(tile_files, desc="  Processing tiles", unit="tile"):
         img = cv2.imread(str(tile_path))
         if img is None:
@@ -113,6 +131,17 @@ def main():
             continue
 
         for contour in contours:
+            # Reject cloud-like contours up front (skips all 26 template
+            # comparisons too, so it's also a speed win).
+            if cfg.cloud_filter_enabled and is_cloud_region(
+                img, contour,
+                v_min=cfg.cloud_v_min,
+                s_max=cfg.cloud_s_max,
+                bright_pixel_pct=cfg.cloud_pixel_pct,
+            ):
+                rejected_cloud += 1
+                continue
+
             poly = contour_to_polygon(contour, cfg.epsilon)
             for tmpl in templates:
                 score = match_shape(poly, tmpl.contour)
@@ -137,7 +166,11 @@ def main():
                     "composite": cfg.composite,
                 })
                 glyph_path = cfg.glyphs_dir / tmpl.letter / f"{glyph_id}.png"
-                result = extract_glyph_crop(img, contour, glyph_path)
+                result = extract_glyph_crop(
+                    img, contour, glyph_path,
+                    min_crop=cfg.glyph_min_crop,
+                    padding=cfg.glyph_padding,
+                )
                 if result is None:
                     cleanup_glyph(glyph_path, store, glyph_id)
                     continue
@@ -146,6 +179,8 @@ def main():
     elapsed = time.time() - t0
     print(f"\n{'='*50}")
     log("done", f"{candidates_found} glyph candidates found in {elapsed:.1f}s")
+    if cfg.cloud_filter_enabled:
+        log("done", f"Rejected as cloud: {rejected_cloud} contours")
     log("done", f"Glyphs: {cfg.glyphs_dir}")
     log("done", f"Metadata: {cfg.metadata_dir / (cfg.region_name + '.json')}")
     print(f"{'='*50}\n")

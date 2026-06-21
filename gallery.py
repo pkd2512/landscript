@@ -16,7 +16,7 @@ def build_gallery_html(region: str = "bangalore") -> str:
     if not meta_path.exists():
         return f"<h1>No metadata found for {region}</h1>"
 
-    with open(meta_path) as f:
+    with open(meta_path, encoding="utf-8") as f:
         glyphs = json.load(f)
 
     by_letter = {}
@@ -209,9 +209,13 @@ def main():
     addr = ("", args.port)
     server = HTTPServer(addr, GalleryHandler)
     server.region = args.region
-    host = socket.gethostbyname(socket.gethostname())
+    try:
+        host = socket.gethostbyname(socket.gethostname())
+    except (socket.gaierror, OSError):
+        host = None
     print(f"Gallery: http://localhost:{args.port}/")
-    print(f"         http://{host}:{args.port}/")
+    if host:
+        print(f"         http://{host}:{args.port}/")
     if args.open:
         webbrowser.open(f"http://localhost:{args.port}/")
     try:

@@ -123,6 +123,21 @@ class PipelineConfig:
     similarity_threshold: float = 0.10
     composite: str = "true-color"
 
+    # Glyph crop output: square crop side = max(contour_bbox * (1+2*padding), glyph_min_crop)
+    # No upscaling is performed, so the saved PNG is at the source tile's
+    # native resolution. Increase glyph_min_crop for bigger output images.
+    glyph_min_crop: int = 512
+    glyph_padding: float = 0.4
+
+    # Cloud rejection: contours whose interior is mostly bright + desaturated
+    # are treated as clouds (or cloud shadow edges) and discarded.
+    # Defaults tuned to also catch thin/wispy clouds, not just dense white ones.
+    cloud_filter_enabled: bool = True
+    cloud_v_min: int = 170          # pixels with V >= this are "bright"
+    cloud_s_max: int = 70           # pixels with S <= this are "desaturated"
+    cloud_pixel_pct: float = 35.0   # if >= this %% of contour pixels are both,
+                                    # reject as cloud
+
     def __post_init__(self):
         self.fonts_dir = PROJECT_ROOT / "fonts"
         self.source_dir = self.data_dir / "source" / self.region_name
