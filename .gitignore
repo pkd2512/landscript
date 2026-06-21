@@ -141,3 +141,17 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Data outputs (large, don't commit)
+data/
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+
+# Colab / Notebooks
+notebooks/.ipynb_checkpoints/
+
+# Drive mount symlinks
+.~drive_mount
