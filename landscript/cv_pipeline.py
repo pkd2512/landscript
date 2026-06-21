@@ -84,7 +84,10 @@ class LetterTemplate:
 
 
 def load_letter_templates(cfg: PipelineConfig) -> List[LetterTemplate]:
+    from tqdm import tqdm
+    log("fonts", "Resolving font...")
     font_path = resolve_font(cfg.font)
+    log("fonts", f"Loading font: {cfg.font.family} ({font_path.name})")
     font = ImageFont.truetype(str(font_path), cfg.font.size)
 
     letters = (
@@ -95,7 +98,7 @@ def load_letter_templates(cfg: PipelineConfig) -> List[LetterTemplate]:
     templates = []
     size = 200
 
-    for letter in letters:
+    for letter in tqdm(letters, desc="  Letters", unit="letter"):
         img = Image.new("L", (size, size), 0)
         draw = ImageDraw.Draw(img)
 
@@ -113,7 +116,12 @@ def load_letter_templates(cfg: PipelineConfig) -> List[LetterTemplate]:
             largest = max(contours, key=cv2.contourArea)
             templates.append(LetterTemplate(letter, largest))
 
+    log("fonts", f"{len(templates)} templates ready")
     return templates
+
+
+def log(step: str, msg: str):
+    print(f"  [{step}] {msg}")
 
 
 def process_tile(
