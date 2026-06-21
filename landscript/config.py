@@ -123,6 +123,17 @@ class PipelineConfig:
     similarity_threshold: float = 0.10
     composite: str = "true-color"
 
+    # --- Multi-lens contour extraction ---
+    # Each lens contributes its own binary mask; contours from all enabled
+    # lenses are merged and deduplicated by bbox IoU. Lenses available:
+    #   otsu       - grayscale Otsu (outlines)
+    #   landuse    - HSV k-means clusters (farmland / landuse blocks — the
+    #                lens that surfaces letters in colour-contrasting fields)
+    #   water      - blue / dark pixels (lakes, rivers, shadows)
+    #   vegetation - NDVI-like green-vs-red ratio (vegetation patches)
+    extractors_enabled: tuple = ("otsu", "landuse", "water", "vegetation")
+    extractor_dedup_iou: float = 0.6
+
     # Glyph crop output: square crop side = max(contour_bbox * (1+2*padding), glyph_min_crop)
     # No upscaling is performed, so the saved PNG is at the source tile's
     # native resolution. Increase glyph_min_crop for bigger output images.
