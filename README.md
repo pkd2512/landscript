@@ -29,7 +29,7 @@ landscript/
 Open the notebook:
 
 ```
-https://colab.research.google.com/github/pkddata/landscript/blob/main/notebooks/extract_glyphs.ipynb
+https://colab.research.google.com/github/pkd2512/landscript/blob/main/notebooks/extract_glyphs.ipynb
 ```
 
 The pipeline:
