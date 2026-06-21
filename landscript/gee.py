@@ -6,11 +6,11 @@ from typing import Optional
 from .config import PipelineConfig
 
 
-def initialize(auth_mode: str = "colab") -> bool:
+def initialize(project: str = "", auth_mode: str = "colab") -> bool:
     try:
         if auth_mode == "colab":
             ee.Authenticate()
-        ee.Initialize(project=ee.EE_DEFAULT_PROJECT)
+        ee.Initialize(project=project or None)
         return True
     except Exception as e:
         print(f"GEE init failed: {e}")
