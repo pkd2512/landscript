@@ -27,7 +27,10 @@ class GlyphStore:
     def add(self, entry: Dict[str, Any]) -> str:
         entry["id"] = f"glyph_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
         entry["created_at"] = datetime.utcnow().isoformat()
-        entry["accepted"] = entry.get("accepted", False)
+        # Tri-state review status: "pending" (default), "accepted", "rejected".
+        # Old entries used a bool `accepted`; we keep it derived for back-compat.
+        entry.setdefault("status", "pending")
+        entry["accepted"] = entry["status"] == "accepted"
         self._glyphs.append(entry)
         self._save()
         return entry["id"]
@@ -48,21 +51,26 @@ class GlyphStore:
             results = [g for g in results if g.get("score", 1) <= max_score]
         return sorted(results, key=lambda g: g.get("score", 1))[:limit]
 
-    def accept(self, glyph_id: str) -> bool:
+    def set_status(self, glyph_id: str, status: str) -> bool:
+        """Set the review status to one of 'pending', 'accepted', 'rejected'."""
+        if status not in ("pending", "accepted", "rejected"):
+            return False
         for g in self._glyphs:
             if g["id"] == glyph_id:
-                g["accepted"] = True
+                g["status"] = status
+                g["accepted"] = status == "accepted"
                 self._save()
                 return True
         return False
 
+    def accept(self, glyph_id: str) -> bool:
+        return self.set_status(glyph_id, "accepted")
+
     def reject(self, glyph_id: str) -> bool:
-        for g in self._glyphs:
-            if g["id"] == glyph_id:
-                g["accepted"] = False
-                self._save()
-                return True
-        return False
+        return self.set_status(glyph_id, "rejected")
+
+    def unreview(self, glyph_id: str) -> bool:
+        return self.set_status(glyph_id, "pending")
 
     def get(self, glyph_id: str) -> Optional[Dict[str, Any]]:
         for g in self._glyphs:

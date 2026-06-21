@@ -129,6 +129,26 @@ class PipelineConfig:
     glyph_min_crop: int = 512
     glyph_padding: float = 0.4
 
+    # --- Phase A: saliency pre-filters (run before template matching) ---
+    # Each gate has an enable flag and one or two thresholds. Defaults are
+    # tuned for letter-like shapes on true-color satellite imagery; tighten
+    # them to reduce false positives, loosen them to recover more candidates.
+    shape_filter_aspect_enabled: bool = True
+    min_aspect_ratio: float = 0.3     # w / h; below this is a tall sliver
+    max_aspect_ratio: float = 3.0     # above this is a long thin river / road
+
+    shape_filter_extent_enabled: bool = True
+    min_extent: float = 0.15          # area / bbox_area; below this is a jagged outline
+    max_extent: float = 0.92          # above this is a filled rectangle (farmland)
+
+    shape_filter_solidity_enabled: bool = True
+    min_solidity: float = 0.30        # area / convex_hull_area
+    max_solidity: float = 0.95        # above this is a smooth blob (lake)
+
+    shape_filter_edge_density_enabled: bool = True
+    min_edge_density: float = 0.02    # Canny edge pixel fraction in bbox window
+    max_edge_density: float = 0.45    # above this is chaotic texture
+
     # Cloud rejection: contours whose interior is mostly bright + desaturated
     # are treated as clouds (or cloud shadow edges) and discarded.
     # Defaults tuned to also catch thin/wispy clouds, not just dense white ones.

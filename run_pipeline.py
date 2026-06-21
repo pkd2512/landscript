@@ -18,8 +18,8 @@ from landscript.cv_pipeline import (
     load_letter_templates, to_grayscale, apply_threshold,
     find_contours, filter_contours, match_shape,
     contour_to_polygon, extract_glyph_crop, cleanup_glyph,
-    is_cloud_region,
 )
+from landscript.shape_filters import is_candidate_shape
 from landscript.metadata import GlyphStore
 
 
@@ -117,7 +117,8 @@ def main():
             tile_index = json.load(f)
 
     candidates_found = 0
-    rejected_cloud = 0
+    # Per-reason rejection counters from the Phase A saliency dispatcher.
+    rejection_counts: dict = {}
     for tile_path in tqdm(tile_files, desc="  Processing tiles", unit="tile"):
         img = cv2.imread(str(tile_path))
         if img is None:
@@ -131,15 +132,12 @@ def main():
             continue
 
         for contour in contours:
-            # Reject cloud-like contours up front (skips all 26 template
-            # comparisons too, so it's also a speed win).
-            if cfg.cloud_filter_enabled and is_cloud_region(
-                img, contour,
-                v_min=cfg.cloud_v_min,
-                s_max=cfg.cloud_s_max,
-                bright_pixel_pct=cfg.cloud_pixel_pct,
-            ):
-                rejected_cloud += 1
+            # Phase A: cheap saliency gates (aspect / extent / solidity /
+            # edge density / cloud) — short-circuit before paying for 26
+            # template comparisons.
+            ok, reason = is_candidate_shape(img, contour, cfg)
+            if not ok:
+                rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
                 continue
 
             poly = contour_to_polygon(contour, cfg.epsilon)
@@ -179,8 +177,13 @@ def main():
     elapsed = time.time() - t0
     print(f"\n{'='*50}")
     log("done", f"{candidates_found} glyph candidates found in {elapsed:.1f}s")
-    if cfg.cloud_filter_enabled:
-        log("done", f"Rejected as cloud: {rejected_cloud} contours")
+    if rejection_counts:
+        total_rejected = sum(rejection_counts.values())
+        log("done", f"Pre-filter rejections: {total_rejected} contours")
+        for reason in ("aspect", "extent", "solidity", "edge_density", "cloud"):
+            n = rejection_counts.get(reason, 0)
+            if n:
+                log("done", f"  {reason:<14} {n}")
     log("done", f"Glyphs: {cfg.glyphs_dir}")
     log("done", f"Metadata: {cfg.metadata_dir / (cfg.region_name + '.json')}")
     print(f"{'='*50}\n")
