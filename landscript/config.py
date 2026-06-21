@@ -36,31 +36,54 @@ REGIONS = {
 }
 
 
+COMPOSITES = {
+    "true-color": {"rgb_bands": ("red", "green", "blue"), "desc": "Natural colors"},
+    "false-color": {"rgb_bands": ("nir", "red", "green"), "desc": "Vegetation in red, water dark"},
+    "swir": {"rgb_bands": ("swir16", "nir", "red"), "desc": "Geology, soil moisture"},
+    "agriculture": {"rgb_bands": ("nir", "rededge1", "rededge2"), "desc": "Crop health"},
+}
+
+
+STAC_PROVIDERS = {
+    "earth-search": {
+        "url": "https://earth-search.aws.element84.com/v1",
+        "data_auth": None,
+    },
+    "planetary-computer": {
+        "url": "https://planetarycomputer.microsoft.com/api/stac/v1",
+        "data_auth": "sas-token",
+        "sas_url": "https://planetarycomputer.microsoft.com/api/sas/v1/token",
+    },
+}
+
 SATELLITES = {
     "sentinel-2": {
         "stac_collection": "sentinel-2-l2a",
-        "rgb_bands": ("B04", "B03", "B02"),
         "scale": 10,
         "cloud_field": "eo:cloud_cover",
+        "band_aliases": {},
+        "stac_provider": "earth-search",
     },
     "landsat-8": {
-        "stac_collection": "landsat-8-l2-c2",
-        "rgb_bands": ("B04", "B03", "B02"),
+        "stac_collection": "landsat-c2-l2",
         "scale": 30,
         "cloud_field": "eo:cloud_cover",
+        "band_aliases": {"nir": "nir08"},
+        "stac_provider": "planetary-computer",
     },
     "landsat-9": {
-        "stac_collection": "landsat-9-l2-c2",
-        "rgb_bands": ("B04", "B03", "B02"),
+        "stac_collection": "landsat-c2-l2",
         "scale": 30,
         "cloud_field": "eo:cloud_cover",
+        "band_aliases": {"nir": "nir08"},
+        "stac_provider": "planetary-computer",
     },
 }
 
 
 @dataclass
 class FontConfig:
-    url: str = "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Regular.ttf"
+    url: str = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosans/NotoSans%5Bwdth,wght%5D.ttf"
     local_path: Optional[Path] = None
     family: str = "Noto Sans"
     size: int = 140
@@ -68,7 +91,7 @@ class FontConfig:
     def resolve_path(self) -> Path:
         if self.local_path and self.local_path.exists():
             return self.local_path
-        return Path(PROJECT_ROOT / "fonts" / self.url.rstrip("/").split("/")[-1])
+        return PROJECT_ROOT / "fonts" / "NotoSans-Regular.ttf"
 
 
 @dataclass
@@ -91,13 +114,14 @@ class PipelineConfig:
     date_start: str = "2023-01-01"
     date_end: str = "2024-12-31"
 
-    tile_size: int = 256
+    tile_size: int = 1024
     threshold_method: str = "otsu"
-    min_contour_area: int = 50
-    max_contour_area: int = 50000
+    min_contour_area: int = 500
+    max_contour_area: int = 500000
     epsilon: float = 0.02
 
-    similarity_threshold: float = 0.15
+    similarity_threshold: float = 0.10
+    composite: str = "true-color"
 
     def __post_init__(self):
         self.fonts_dir = PROJECT_ROOT / "fonts"
@@ -110,8 +134,7 @@ class PipelineConfig:
             d.mkdir(parents=True, exist_ok=True)
 
         if self.font.local_path is None:
-            fname = self.font.url.rstrip("/").split("/")[-1]
-            self.font.local_path = self.fonts_dir / fname
+            self.font.local_path = self.fonts_dir / "NotoSans-Regular.ttf"
 
     @property
     def satellite_config(self) -> dict:
@@ -123,8 +146,19 @@ class PipelineConfig:
 
     @property
     def rgb_bands(self) -> Tuple[str, ...]:
-        return self.satellite_config["rgb_bands"]
+        base = COMPOSITES.get(self.composite, COMPOSITES["true-color"])["rgb_bands"]
+        alias = self.satellite_config.get("band_aliases", {})
+        return tuple(alias.get(b, b) for b in base)
+
+    @property
+    def composite_desc(self) -> str:
+        return COMPOSITES.get(self.composite, COMPOSITES["true-color"])["desc"]
 
     @property
     def cloud_field(self) -> str:
         return self.satellite_config["cloud_field"]
+
+    @property
+    def stac_url(self) -> str:
+        provider = self.satellite_config["stac_provider"]
+        return STAC_PROVIDERS[provider]["url"]

@@ -90,10 +90,7 @@ def load_letter_templates(cfg: PipelineConfig) -> List[LetterTemplate]:
     log("fonts", f"Loading font: {cfg.font.family} ({font_path.name})")
     font = ImageFont.truetype(str(font_path), cfg.font.size)
 
-    letters = (
-        list("ABCDEFGHIJKLMNOPQRSTUVWXYZ") +
-        list("abcdefghijklmnopqrstuvwxyz")
-    )
+    letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     templates = []
     size = 200
@@ -163,15 +160,46 @@ def extract_glyph_crop(
     img: np.ndarray,
     contour: np.ndarray,
     output_path: Path,
-    padding: int = 10,
+    out_w: int = 1024,
+    out_h: int = 2048,
+    max_black_pct: float = 20.0,
 ) -> Optional[Path]:
     x, y, w, h = cv2.boundingRect(contour)
-    x = max(0, x - padding)
-    y = max(0, y - padding)
-    w = min(img.shape[1] - x, w + 2 * padding)
-    h = min(img.shape[0] - y, h + 2 * padding)
+    cx, cy = x + w // 2, y + h // 2
 
-    crop = img[y:y + h, x:x + w]
+    left = cx - out_w // 2
+    top = cy - out_h // 2
+    right = left + out_w
+    bottom = top + out_h
+
+    tile_h, tile_w = img.shape[:2]
+    canvas = np.zeros((out_h, out_w, 3), dtype=np.uint8)
+    mask = np.zeros((out_h, out_w), dtype=np.uint8)
+
+    src_l = max(0, left)
+    src_t = max(0, top)
+    src_r = min(tile_w, right)
+    src_b = min(tile_h, bottom)
+    dst_l = src_l - left
+    dst_t = src_t - top
+    dst_r = dst_l + (src_r - src_l)
+    dst_b = dst_t + (src_b - src_t)
+
+    if dst_r > dst_l and dst_b > dst_t:
+        canvas[dst_t:dst_b, dst_l:dst_r] = img[src_t:src_b, src_l:src_r]
+        mask[dst_t:dst_b, dst_l:dst_r] = 255
+
+    black_pct = 100.0 * (1.0 - mask.mean() / 255.0)
+    if black_pct > max_black_pct:
+        return None
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(output_path), crop)
+    cv2.imwrite(str(output_path), canvas)
     return output_path
+
+
+def cleanup_glyph(glyph_path: Path, store, glyph_id: str):
+    """Remove a glyph file and its metadata entry."""
+    if glyph_path.exists():
+        glyph_path.unlink()
+    store.delete(glyph_id)

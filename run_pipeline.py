@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import json
 import time
 import cv2
 from tqdm import tqdm
@@ -16,9 +17,25 @@ from landscript.stac import download_and_tile
 from landscript.cv_pipeline import (
     load_letter_templates, to_grayscale, apply_threshold,
     find_contours, filter_contours, match_shape,
-    contour_to_polygon, extract_glyph_crop
+    contour_to_polygon, extract_glyph_crop, cleanup_glyph
 )
 from landscript.metadata import GlyphStore
+
+
+def pixel_to_coords(tile_name: str, px: int, py: int, index: dict):
+    """Convert tile pixel coords to WGS84 lat/lon using tile_index.json."""
+    info = index.get(tile_name)
+    if not info:
+        return None, None
+    t = info["transform"]
+    cx = t[2] + (info["col_off"] + px) * t[0] + (info["row_off"] + py) * t[1]
+    cy = t[5] + (info["col_off"] + px) * t[4] + (info["row_off"] + py) * t[3]
+    try:
+        from rasterio.warp import transform as warp
+        result = warp(info["crs"], "EPSG:4326", [cx], [cy])
+        return round(result[0][0], 6), round(result[1][0], 6)
+    except Exception:
+        return round(cx, 6), round(cy, 6)
 
 
 def log(step: str, msg: str):
@@ -31,8 +48,10 @@ def main():
     parser.add_argument("--region", default="bangalore", choices=list(REGIONS.keys()))
     parser.add_argument("--satellite", default="sentinel-2", choices=list(SATELLITES.keys()))
     parser.add_argument("--scenes", type=int, default=3, help="Number of best scenes to download")
-    parser.add_argument("--cloud", type=int, default=20, help="Max cloud cover %")
-    parser.add_argument("--threshold", type=float, default=0.15, help="Shape match threshold (lower = stricter)")
+    parser.add_argument("--cloud", type=int, default=20, help="Max cloud cover %%")
+    parser.add_argument("--threshold", type=float, default=0.10, help="Shape match threshold (lower = stricter)")
+    parser.add_argument("--composite", default="true-color", help="true-color, false-color, swir, agriculture")
+    parser.add_argument("--tile-size", type=int, default=1024, help="Tile size in pixels")
     parser.add_argument("--date-start", default="2023-01-01")
     parser.add_argument("--date-end", default="2024-12-31")
     args = parser.parse_args()
@@ -43,8 +62,10 @@ def main():
         satellite=args.satellite,
         cloud_cover_max=args.cloud,
         similarity_threshold=args.threshold,
+        composite=args.composite,
         date_start=args.date_start,
         date_end=args.date_end,
+        tile_size=args.tile_size,
     )
 
     print(f"\n{'='*50}")
@@ -54,6 +75,7 @@ def main():
     log("config", f"Satellite: {cfg.satellite}")
     log("config", f"Bounds: {cfg.bbox}")
     log("config", f"Cloud max: {cfg.cloud_cover_max}%")
+    log("config", f"Composite: {cfg.composite} ({cfg.composite_desc})")
     log("config", f"Threshold: {cfg.similarity_threshold}")
     log("config", f"Date range: {cfg.date_start} to {cfg.date_end}")
 
@@ -70,6 +92,12 @@ def main():
     print(f"\n--- Step 3/3: Match glyphs in tiles ---")
     store = GlyphStore(cfg.metadata_dir / f"{cfg.region_name}.json")
     log("store", f"{store.count()} existing glyphs in DB")
+
+    tile_index_path = cfg.tiles_dir / "tile_index.json"
+    tile_index = {}
+    if tile_index_path.exists():
+        with open(tile_index_path) as f:
+            tile_index = json.load(f)
 
     candidates_found = 0
     for tile_path in tqdm(tile_files, desc="  Processing tiles", unit="tile"):
@@ -92,18 +120,27 @@ def main():
                     continue
 
                 x, y, w, h = cv2.boundingRect(contour)
+                lon, lat = pixel_to_coords(
+                    tile_path.name, x + w // 2, y + h // 2, tile_index
+                )
                 glyph_id = store.add({
                     "letter": tmpl.letter,
                     "score": float(score),
                     "bbox": {"x": x, "y": y, "w": w, "h": h},
+                    "lat": lat,
+                    "lon": lon,
                     "source_tile": tile_path.name,
                     "region": cfg.region_name,
                     "state": cfg.state,
                     "country": cfg.country,
                     "satellite": cfg.satellite,
+                    "composite": cfg.composite,
                 })
                 glyph_path = cfg.glyphs_dir / tmpl.letter / f"{glyph_id}.png"
-                extract_glyph_crop(img, contour, glyph_path)
+                result = extract_glyph_crop(img, contour, glyph_path)
+                if result is None:
+                    cleanup_glyph(glyph_path, store, glyph_id)
+                    continue
                 candidates_found += 1
 
     elapsed = time.time() - t0

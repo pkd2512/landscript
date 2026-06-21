@@ -73,5 +73,13 @@ class GlyphStore:
     def all(self, limit: int = 500) -> List[Dict[str, Any]]:
         return self._glyphs[:limit]
 
+    def delete(self, glyph_id: str) -> bool:
+        for i, g in enumerate(self._glyphs):
+            if g["id"] == glyph_id:
+                self._glyphs.pop(i)
+                self._save()
+                return True
+        return False
+
     def count(self) -> int:
         return len(self._glyphs)
