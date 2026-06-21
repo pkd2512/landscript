@@ -17,6 +17,10 @@ class BBox:
         return ((self.min_lat + self.max_lat) / 2,
                 (self.min_lon + self.max_lon) / 2)
 
+    def as_tuple(self) -> Tuple[float, float, float, float]:
+        return (self.min_lon, self.min_lat,
+                self.max_lon, self.max_lat)
+
 
 REGIONS = {
     "bangalore": BBox(min_lat=12.82, max_lat=13.12,
@@ -34,22 +38,22 @@ REGIONS = {
 
 SATELLITES = {
     "sentinel-2": {
-        "collection": "COPERNICUS/S2_SR_HARMONIZED",
-        "rgb_bands": ("B4", "B3", "B2"),
+        "stac_collection": "sentinel-2-l2a",
+        "rgb_bands": ("B04", "B03", "B02"),
         "scale": 10,
-        "cloud_field": "CLOUDY_PIXEL_PERCENTAGE",
+        "cloud_field": "eo:cloud_cover",
     },
     "landsat-8": {
-        "collection": "LANDSAT/LC08/C02/T1_TOA",
-        "rgb_bands": ("B4", "B3", "B2"),
+        "stac_collection": "landsat-8-l2-c2",
+        "rgb_bands": ("B04", "B03", "B02"),
         "scale": 30,
-        "cloud_field": "CLOUD_COVER",
+        "cloud_field": "eo:cloud_cover",
     },
     "landsat-9": {
-        "collection": "LANDSAT/LC09/C02/T1_TOA",
-        "rgb_bands": ("B4", "B3", "B2"),
+        "stac_collection": "landsat-9-l2-c2",
+        "rgb_bands": ("B04", "B03", "B02"),
         "scale": 30,
-        "cloud_field": "CLOUD_COVER",
+        "cloud_field": "eo:cloud_cover",
     },
 }
 
@@ -60,9 +64,6 @@ class FontConfig:
     local_path: Optional[Path] = None
     family: str = "Noto Sans"
     size: int = 140
-    bold_url: str = "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Bold.ttf"
-    devanagari_url: str = "https://github.com/google/fonts/raw/main/ofl/notosansdevanagari/NotoSansDevanagari-Regular.ttf"
-    kannada_url: str = "https://github.com/google/fonts/raw/main/ofl/notosanskannada/NotoSansKannada-Regular.ttf"
 
     def resolve_path(self) -> Path:
         if self.local_path and self.local_path.exists():
@@ -80,7 +81,6 @@ class PipelineConfig:
     font: FontConfig = field(default_factory=FontConfig)
 
     data_dir: Path = PROJECT_ROOT / "data"
-    drive_dir: Optional[Path] = None
     fonts_dir: Path = field(init=False)
     source_dir: Path = field(init=False)
     tiles_dir: Path = field(init=False)
@@ -101,14 +101,12 @@ class PipelineConfig:
 
     def __post_init__(self):
         self.fonts_dir = PROJECT_ROOT / "fonts"
-        bulk = self.drive_dir or self.data_dir
-        self.source_dir = bulk / "source"
-        self.tiles_dir = bulk / "tiles"
+        self.source_dir = self.data_dir / "source" / self.region_name
+        self.tiles_dir = self.data_dir / "tiles" / self.region_name
         self.glyphs_dir = self.data_dir / "glyphs"
         self.metadata_dir = self.data_dir / "metadata"
-        for d in [self.fonts_dir, self.glyphs_dir, self.metadata_dir]:
-            d.mkdir(parents=True, exist_ok=True)
-        for d in [self.source_dir, self.tiles_dir]:
+        for d in [self.fonts_dir, self.source_dir, self.tiles_dir,
+                  self.glyphs_dir, self.metadata_dir]:
             d.mkdir(parents=True, exist_ok=True)
 
         if self.font.local_path is None:
@@ -120,16 +118,12 @@ class PipelineConfig:
         return SATELLITES.get(self.satellite, SATELLITES["sentinel-2"])
 
     @property
-    def gee_collection(self) -> str:
-        return self.satellite_config["collection"]
+    def stac_collection(self) -> str:
+        return self.satellite_config["stac_collection"]
 
     @property
     def rgb_bands(self) -> Tuple[str, ...]:
         return self.satellite_config["rgb_bands"]
-
-    @property
-    def gee_scale(self) -> int:
-        return self.satellite_config["scale"]
 
     @property
     def cloud_field(self) -> str:
