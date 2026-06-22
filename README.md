@@ -119,19 +119,23 @@ landscript/
 │   ├── features.py          # dominant-shape extraction + interest score
 │   └── metadata.py          # JSON candidate store + similarity search
 ├── data/
-│   ├── source/              # downloaded GeoTIFFs        (gitignored)
-│   ├── tiles/               # PNG tiles + tile_index.json (gitignored)
-│   ├── candidates/          # <region|country>.json      (tracked)
-│   └── glyphs/<region>/     # candidate PNGs              (tracked)
+│   ├── source/              # downloaded GeoTIFFs           (gitignored)
+│   ├── tiles/               # PNG tiles + tile_index.json   (gitignored)
+│   ├── candidates/          # <region|country>.json         (tracked)
+│   └── glyphs/<region>/     # candidate PNGs                (gitignored;
+│                            #  regenerate via regen_pngs.py)
 ├── fonts/
 └── pyproject.toml
 ```
 
 ## Regenerating glyph PNGs without redownloading
 
-The heavy `data/source/` (GeoTIFFs) and `data/tiles/` (PNG tiles) trees
-are gitignored. The lighter `data/candidates/*.json` plus
-`data/glyphs/<region>/*.png` are committed.
+`data/source/` (GeoTIFFs), `data/tiles/` (PNG tiles) and
+`data/glyphs/` (candidate PNGs) are all gitignored — they're too large
+for GitHub (typically 10+ GB per country). Only the lightweight
+`data/candidates/*.json` files are committed; they carry every
+candidate's `source_tile` reference and lat/lon, so the PNGs can be
+rebuilt deterministically.
 
 If you copy or re-create `data/tiles/` on another machine (or move it
 to a different path), you can recreate every candidate PNG without
