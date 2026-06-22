@@ -1,93 +1,135 @@
+"""JSON-backed candidate store for Landscript.
+
+Keeps a flat list of candidate dicts and provides:
+
+  - ``add`` / ``get`` / ``all`` / ``delete`` / ``count``
+  - tri-state status ``pending`` / ``accepted`` / ``rejected``
+  - **manual letter assignment** (``set_letter``) — the *only* place a
+    letter gets attached to a candidate. The pipeline doesn't predict
+    letters; humans assign them in the gallery.
+  - **similarity search** over the per-candidate descriptor vector (used
+    by the gallery's "find similar" feature).
+"""
+
+from __future__ import annotations
+
 import json
-from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 
-class GlyphStore:
-    """Lightweight JSON-file metadata store."""
+class CandidateStore:
+    """Lightweight JSON store of candidate tiles."""
 
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._glyphs: List[Dict[str, Any]] = []
+        self._items: List[Dict[str, Any]] = []
         self._load()
 
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
     def _load(self):
         if self.path.exists():
             with open(self.path, encoding="utf-8") as f:
-                self._glyphs = json.load(f)
+                self._items = json.load(f)
         else:
-            self._glyphs = []
+            self._items = []
 
     def _save(self):
         with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(self._glyphs, f, indent=2, default=str, ensure_ascii=False)
+            json.dump(self._items, f, indent=2, default=str,
+                      ensure_ascii=False)
 
+    # ------------------------------------------------------------------
+    # CRUD
+    # ------------------------------------------------------------------
     def add(self, entry: Dict[str, Any]) -> str:
-        entry["id"] = f"glyph_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
-        entry["created_at"] = datetime.utcnow().isoformat()
-        # Tri-state review status: "pending" (default), "accepted", "rejected".
-        # Old entries used a bool `accepted`; we keep it derived for back-compat.
-        entry.setdefault("status", "pending")
-        entry["accepted"] = entry["status"] == "accepted"
-        self._glyphs.append(entry)
+        entry.setdefault("id", f"cand_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}")
+        entry.setdefault("created_at", datetime.utcnow().isoformat())
+        entry.setdefault("status", "pending")     # pending / accepted / rejected
+        entry.setdefault("letter", None)          # assigned by human via UI
+        self._items.append(entry)
         self._save()
         return entry["id"]
 
-    def search(self, letter: Optional[str] = None,
-               accepted: Optional[bool] = None,
-               min_score: Optional[float] = None,
-               max_score: Optional[float] = None,
-               limit: int = 100) -> List[Dict[str, Any]]:
-        results = self._glyphs
-        if letter:
-            results = [g for g in results if g.get("letter") == letter]
-        if accepted is not None:
-            results = [g for g in results if g.get("accepted") is accepted]
-        if min_score is not None:
-            results = [g for g in results if g.get("score", 1) >= min_score]
-        if max_score is not None:
-            results = [g for g in results if g.get("score", 1) <= max_score]
-        return sorted(results, key=lambda g: g.get("score", 1))[:limit]
-
-    def set_status(self, glyph_id: str, status: str) -> bool:
-        """Set the review status to one of 'pending', 'accepted', 'rejected'."""
-        if status not in ("pending", "accepted", "rejected"):
-            return False
-        for g in self._glyphs:
-            if g["id"] == glyph_id:
-                g["status"] = status
-                g["accepted"] = status == "accepted"
-                self._save()
-                return True
-        return False
-
-    def accept(self, glyph_id: str) -> bool:
-        return self.set_status(glyph_id, "accepted")
-
-    def reject(self, glyph_id: str) -> bool:
-        return self.set_status(glyph_id, "rejected")
-
-    def unreview(self, glyph_id: str) -> bool:
-        return self.set_status(glyph_id, "pending")
-
-    def get(self, glyph_id: str) -> Optional[Dict[str, Any]]:
-        for g in self._glyphs:
-            if g["id"] == glyph_id:
-                return g
+    def get(self, cid: str) -> Optional[Dict[str, Any]]:
+        for c in self._items:
+            if c["id"] == cid:
+                return c
         return None
 
-    def all(self, limit: int = 500) -> List[Dict[str, Any]]:
-        return self._glyphs[:limit]
+    def all(self, limit: int = 100000) -> List[Dict[str, Any]]:
+        return self._items[:limit]
 
-    def delete(self, glyph_id: str) -> bool:
-        for i, g in enumerate(self._glyphs):
-            if g["id"] == glyph_id:
-                self._glyphs.pop(i)
+    def count(self) -> int:
+        return len(self._items)
+
+    def delete(self, cid: str) -> bool:
+        for i, c in enumerate(self._items):
+            if c["id"] == cid:
+                self._items.pop(i)
                 self._save()
                 return True
         return False
 
-    def count(self) -> int:
-        return len(self._glyphs)
+    # ------------------------------------------------------------------
+    # Status + letter assignment
+    # ------------------------------------------------------------------
+    def set_status(self, cid: str, status: str) -> bool:
+        if status not in ("pending", "accepted", "rejected"):
+            return False
+        c = self.get(cid)
+        if c is None:
+            return False
+        c["status"] = status
+        self._save()
+        return True
+
+    def set_letter(self, cid: str, letter: Optional[str]) -> bool:
+        """Assign an A–Z label to a candidate (or pass None to clear).
+
+        This is the *only* mechanism that attaches a letter; the matcher
+        never does.
+        """
+        c = self.get(cid)
+        if c is None:
+            return False
+        if letter is not None:
+            letter = letter.upper().strip() or None
+            if letter is not None and (len(letter) != 1 or not letter.isalpha()):
+                return False
+        c["letter"] = letter
+        self._save()
+        return True
+
+    # ------------------------------------------------------------------
+    # Similarity search (for "find similar" in the gallery)
+    # ------------------------------------------------------------------
+    def find_similar(self, cid: str, k: int = 20) -> List[Dict[str, Any]]:
+        """Return the ``k`` candidates with the smallest descriptor distance
+        to the candidate identified by ``cid``. The candidate itself is
+        excluded from the result. Returns an empty list if descriptors are
+        unavailable.
+        """
+        target = self.get(cid)
+        if target is None or "descriptor" not in target:
+            return []
+        tv = np.asarray(target["descriptor"], dtype=np.float64)
+        scored: List[tuple] = []
+        for c in self._items:
+            if c["id"] == cid:
+                continue
+            if "descriptor" not in c:
+                continue
+            v = np.asarray(c["descriptor"], dtype=np.float64)
+            if v.shape != tv.shape:
+                continue
+            d = float(np.linalg.norm(v - tv))
+            scored.append((d, c))
+        scored.sort(key=lambda r: r[0])
+        return [c for _, c in scored[:k]]

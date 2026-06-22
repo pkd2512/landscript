@@ -4,6 +4,10 @@ data/tiles/**
 *.tif
 *.tiff
 
+# Glyph PNGs are regenerable from cached tiles + data/candidates/<region>.json
+# via `python regen_pngs.py <region>`. Too large for GitHub.
+data/glyphs/**
+
 # Logs
 logs
 *.log
